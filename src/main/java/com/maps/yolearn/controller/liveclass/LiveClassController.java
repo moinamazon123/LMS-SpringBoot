@@ -6,10 +6,12 @@ import com.maps.yolearn.bean.liveclass.BatchBean;
 import com.maps.yolearn.bean.liveclass.BatchIdToStudents;
 import com.maps.yolearn.bean.liveclass.LiveMetaData;
 import com.maps.yolearn.model.liveclass.*;
+import com.maps.yolearn.model.user.Token;
 import com.maps.yolearn.service.EntityService;
 import com.maps.yolearn.util.date.MyDateFormate;
 import com.maps.yolearn.util.filter.FilterUtility;
 import com.maps.yolearn.util.mail.E_Mail_Sender_info;
+import com.maps.yolearn.util.mail.MaskUtil;
 import com.maps.yolearn.util.primarykey.CustomPKGenerator;
 import com.maps.yolearn.util.sms.SendingMessage;
 import org.json.simple.JSONArray;
@@ -251,6 +253,28 @@ public class LiveClassController {
             jsono.put("msg", "miss match teacherAccountId in teacherAccount class !");
         }
         return jsono;
+    }
+
+    @GetMapping("/sendMail")
+    public String sendMail() throws MessagingException {
+
+
+        String subject1 = "YOLEARN - Class Confirmation";
+        String emailMsg = "Hi <b> MOin</b><br><br>"
+                + "Your class has been scheduled successfully!<br><br>"
+                + "<b>Class Details:</b><br><br>"
+                + "<table>"
+                + "<tr><td>Subject Name</td><td> : MATH</td></tr>"
+                + "<tr><td>Title</td><td> :Algebra</td></tr>"
+                + "<tr><td>Schedule Date</td><td> 2022-09-10 </td></tr>"
+                + "</table><br><br>"
+                + "<b>Yours Sincerely,</b><br>"
+                + "YOLEARN Team.<br><br>"
+                + "Thanks for choosing Yolearn";
+        Set<String> to1 = new HashSet<>();
+        to1.add("moinamazon123@gmail.com");
+        javaMail_Sender_Info.composeAndSend(subject1, to1, emailMsg);
+        return "succ";
     }
 
     public List<Boolean> checkTimeConflict(List<Object> list, LiveMetaData bean) {
@@ -3194,13 +3218,16 @@ public class LiveClassController {
     public @ResponseBody
     ResponseEntity<?> createZoomMeeting(@RequestBody ZoomRequest zoomMeetingRequest) {
 
+        String token = (String) service.getObject(String.format("%s", "SELECT c.token FROM Token c order by c.id desc")).get(0);
+
+        log.info("Token , {}", MaskUtil.maskNumber(token,"xxxxxx####"));
         ResponseEntity<JSONObject> responseEntity = null;
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
 
         headers.setContentType(MediaType.APPLICATION_JSON);
         //  headers.set("Authorization", zoomToken);
-        headers.set("Authorization", zoomToken);
+        headers.set("Authorization", "Bearer "+token);
         String URL = creatingMeetingURL;
 
         log.info("Schedule date time {}", zoomMeetingRequest.getStart_time());
@@ -3239,13 +3266,14 @@ public class LiveClassController {
     public boolean  getTokenValid(){
 
         boolean flag = false;
+        String token = (String) service.getObject(String.format("%s", "SELECT c.token FROM Token c order by c.id desc")).get(0);
         ResponseEntity<JSONObject> responseEntity = null;
         HttpHeaders headers = new HttpHeaders();
         headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
 
         headers.setContentType(MediaType.APPLICATION_JSON);
         //  headers.set("Authorization", zoomToken);
-        headers.set("Authorization", zoomToken);
+        headers.set("Authorization", "Bearer "+token);
         String URL = creatingMeetingURL;
         ZoomRequest zoomRequest = new ZoomRequest();
         zoomRequest.setTopic("Testing Token");
@@ -3262,24 +3290,18 @@ public class LiveClassController {
         return flag;
     }
 
-    @PostMapping("/generateToken")
+    @GetMapping("/saveToken/{token}")
     public @ResponseBody
-    ResponseEntity<?> generateZoomRequest(@RequestBody TokenRequest tokenRequest) {
+    ResponseEntity<?> saveToken(@PathVariable("token") String tokenString) {
+      try {
+          Token token = new Token();
+          token.setToken(tokenString);
+          service.save(token);
 
-        ResponseEntity<JSONObject> responseEntity = null;
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
-
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<TokenRequest> request = new HttpEntity<>(tokenRequest, headers);
-        try {
-            responseEntity = restTemplate.postForEntity("http://localhost:3000/userinfo", request, JSONObject.class);
-        }catch (HttpClientErrorException e) {
-                log.error("Zoom Token Expired!");
-                return new ResponseEntity<>("Zoom Token Expired", HttpStatus.UNAUTHORIZED);
-            }
-            log.info("Getting From Zoom", responseEntity);
-            return responseEntity;
+      }catch(Exception e){
+          log.error("Exception occurred ,{}", e.getMessage());
+      }
+   return new ResponseEntity<>("Saved",HttpStatus.OK);
 
     }
 
