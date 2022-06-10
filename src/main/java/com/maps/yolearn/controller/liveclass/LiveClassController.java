@@ -14,9 +14,12 @@ import com.maps.yolearn.util.primarykey.CustomPKGenerator;
 import com.maps.yolearn.util.sms.SendingMessage;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
@@ -37,8 +40,11 @@ import java.util.logging.Logger;
 @RestController
 @RequestMapping(value = {"/liveclass"})
 @CrossOrigin(origins = "*", maxAge = 3600)
+
+
 public class LiveClassController {
 
+    private static final org.slf4j.Logger log = LoggerFactory.getLogger(LiveClassController.class);
     E_Mail_Sender_info javaMail_Sender_Info = new E_Mail_Sender_info();
     @Autowired
     private RestTemplate restTemplate;
@@ -46,6 +52,10 @@ public class LiveClassController {
     private EntityService service;
     @Autowired
     private CustomPKGenerator pKGenerator;
+    @Value("${zoom.jwt.token}")
+    private String zoomToken;
+    @Value("${zoom.api.create.meeting}")
+    private String creatingMeetingURL;
 
     public JSONObject getClassSchedulerJson(ClassScheduler classScheduler) {
         JSONObject json = new JSONObject();
@@ -86,9 +96,9 @@ public class LiveClassController {
     JSONObject createLiveSession(@RequestBody LiveMetaData bean) {
         JSONObject jsono = new JSONObject();
         try {
-            TimeZone tz = TimeZone.getTimeZone("UTC");
+            //TimeZone tz = TimeZone.getTimeZone("IST");
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            sdf.setTimeZone(tz);
+            //sdf.setTimeZone(tz);
             String current = sdf.format(new Date());
 //            Date current = MyDateFormate.stringToDate(currents);
 
@@ -106,6 +116,7 @@ public class LiveClassController {
             classScheduler.setPresenterUniqueName(bean.getPresenterUniqueName());
             classScheduler.setRestartSession(bean.getRestartSession());
             classScheduler.setScheduledDate(MyDateFormate.stringToDate(bean.getScheduledDate()));
+
             classScheduler.setEndDate(MyDateFormate.stringToDate(bean.getEndDate()));
             classScheduler.setTeacherId((bean.getTeacherId()));
             classScheduler.setTitle(bean.getTitle());
@@ -275,10 +286,18 @@ public class LiveClassController {
         String info = "info@yolearn.com";
 
         try {
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
+            //SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
+// Added by Moin for date schedule fix at backend
+            SimpleDateFormat sdf = new SimpleDateFormat("E MMM dd HH:mm:ss Z yyyy");
+            SimpleDateFormat sdf1 = new SimpleDateFormat("yyyy-MM-dd hh:mm:ss");
             Date date = sdf.parse(bean.getScheduledDate());
-            Long longDate = date.getTime();
-            String scheduledDateString = MyDateFormate.getTimeBasedOnTimeZone(longDate);
+            String scheduledDateString = sdf1.format(date);
+            // Date schDate = sdf1.parse();
+
+
+            /** Date date = sdf.parse(bean.getScheduledDate());
+             Long longDate = date.getTime();
+             String scheduledDateString = MyDateFormate.getTimeBasedOnTimeZone(longDate);**/
 
             List<Object> ClassSchedulerobj = service.getObject("FROM ClassScheduler c WHERE c.sessionId = '" + bean.getSessionId() + "'");
             if (ClassSchedulerobj.size() > 0) {
@@ -309,6 +328,7 @@ public class LiveClassController {
                         classScheduler.setPresenterDisplayName(bean.getPresenterDisplayName());
                         classScheduler.setPresenterUniqueName(bean.getPresenterUniqueName());
                         classScheduler.setScheduledDate(MyDateFormate.stringToDate(bean.getScheduledDate()));
+
                         classScheduler.setEndDate(MyDateFormate.stringToDate(bean.getEndDate()));
                         classScheduler.setTeacherId((bean.getTeacherId()));
                         classScheduler.setTitle(bean.getTitle());
@@ -470,9 +490,9 @@ public class LiveClassController {
         int recordedTotalCount = 0;
         int upcomingTotalCount = 0;
         int liveTotalCount = 0;
-        TimeZone tz = TimeZone.getTimeZone("UTC");
+        //TimeZone tz = TimeZone.getTimeZone("IST");
         DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // Quoted "Z" to indicate UTC, no timezone offset
-        df.setTimeZone(tz);
+        //df.setTimeZone(tz);
         String nowAsISO = df.format(new Date());
 //        Date currentDate = MyDateFormate.stringToDate(nowAsISO);
 
@@ -597,9 +617,9 @@ public class LiveClassController {
 
         JSONObject j = new JSONObject();
         FilterUtility filterUtility = new FilterUtility();
-        TimeZone tz = TimeZone.getTimeZone("UTC");
+        //TimeZone tz = TimeZone.getTimeZone("IST");
         DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // Quoted "Z" to indicate UTC, no timezone offset
-        df.setTimeZone(tz);
+        //df.setTimeZone(tz);
         String currentDate = df.format(new Date());
         long TotalCount = 0;
         long retrievedResultCount = 0;
@@ -725,10 +745,10 @@ public class LiveClassController {
         int upcomingTotalCount = 0;
         int liveTotalCount = 0;
 
-        TimeZone tz = TimeZone.getTimeZone("UTC");
+        //TimeZone tz = TimeZone.getTimeZone("IST");
         DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // Quoted "Z" to indicate UTC, no timezone offset
 //        DateFormat df = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm'Z'"); // Quoted "Z" to indicate UTC, no timezone offset
-        df.setTimeZone(tz);
+        // df.setTimeZone(tz);
         Date current = MyDateFormate.stringToDate(String.format("%s", df.format(new Date())));
         String currentDate = df.format(new Date());
         try {
@@ -912,7 +932,26 @@ public class LiveClassController {
         } catch (Exception e) {
             json.put("msg", "Error " + e.getMessage());
         }
+
+        deleteZoomMeeting(bean.getSessionId());
         return json;
+    }
+
+    private void deleteZoomMeeting(String sessionId) {
+        log.info("Under Zoom meeting delete ", sessionId);
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Authorization", zoomToken);
+        String URL = "https://api.zoom.us/v2/meetings/" + sessionId;
+
+        HttpEntity<?> request = new HttpEntity<Object>(headers);
+
+        restTemplate.exchange(URL, HttpMethod.DELETE, request, String.class);
+        log.info("Delete success");
+
     }
 
     @RequestMapping(method = RequestMethod.POST, value = "/deleteMultipleClasses")
@@ -986,15 +1025,16 @@ public class LiveClassController {
         String dateOrder = filter.getDateOrder();
         String titleOrder = filter.getTitleOrder();
 
-        TimeZone tz = TimeZone.getTimeZone("UTC");
+        //TimeZone tz = TimeZone.getTimeZone("IST");
         DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // Quoted "Z" to indicate UTC, no timezone offset
-        df.setTimeZone(tz);
+        //df.setTimeZone(tz);
 //        Date current = MyDateFormate.stringToDate(String.format("%s", df.format(new Date())));
         String current = df.format(new Date());
         int countRecorded = 0;
         try {
             Map<String, String> SQLFilter = new FilterUtility().listOfClassSchedulerByBatchIdFilter(presenterDisplayName,
-                    syllabusFilter, subjectFilters, chapterFilters, batchId, scheduledDate, freeclass, current, text, startDate, enddate, dateOrder, titleOrder);
+                    syllabusFilter,
+                    subjectFilters, chapterFilters, batchId, scheduledDate, freeclass, current, text, startDate, enddate, dateOrder, titleOrder);
             System.out.println(SQLFilter.get("SQLcountRecorded"));
             countRecorded = (int) service.countObject(SQLFilter.get("SQLcountRecorded"));
             List<Object> listRecordedObj = service.loadByLimit(SQLFilter.get("SQLRecorded"), (pageNo * maxResult), maxResult);
@@ -1126,9 +1166,9 @@ public class LiveClassController {
 
         String gradeName = filter.getGradeName();
 
-        TimeZone tz = TimeZone.getTimeZone("UTC");
+        //TimeZone tz = TimeZone.getTimeZone("IST");
         DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // Quoted "Z" to indicate UTC, no timezone offset
-        df.setTimeZone(tz);
+        //df.setTimeZone(tz);
 //        Date currentDate = MyDateFormate.stringToDate(String.format("%s", df.format(new Date())));
         String currentDate = df.format(new Date());
         int countRecorded = 0;
@@ -1598,8 +1638,8 @@ public class LiveClassController {
 
             }
 
-//                
-//                
+//
+//
 //                missedClassSchedulerSET
 //                        .stream()
 //                        .forEach((sessionId) -> {
@@ -1741,7 +1781,7 @@ public class LiveClassController {
 //          String sql=  "SELECT p.SESSION_ID FROM PARTICIPANTS p where p.PARTIC_UNIQUENAME='" + sAccountId + "' and p.VIEW_PERCETAGE<90\n"
 //                    + "UNION\n"
 //                    + "SELECT rs.SESSION_ID FROM RECORDED_STATS rs where rs.UNIQUENAME='" + sAccountId + "' and rs.VIEW_PERCETAGE<90";
-//            
+//
 //              List<Object> incompletedClassesList = this.service.getObjectsByNativeSqlQuery(inCompleteNativeSql);
 //            String inCompleteNativeSql = "select CLASS_ID,ACCESS_TO,AVG_RATING,BATCH_ID,CAN_EXTEND, "
 //                    + "CHAPTER_ID,CHAPTER_NAME,DURATION_MINUTES,END_DATE,FORCE_EXIT_PARTICIPANTS, "
@@ -1794,13 +1834,13 @@ public class LiveClassController {
 //                    + "UNION\n"
 //                    + "SELECT rs.SESSION_ID,rs.VIEW_PERCETAGE FROM RECORDED_STATS rs where rs.UNIQUENAME='" + sAccountId + "' and rs.VIEW_PERCETAGE<90)"
 //                    + "as result on c.SESSION_ID=result.SESSION_ID";
-//            select  c.*,max(result.VIEW_PERCETAGE) from CLASS_SCHEDULER c INNER JOIN 
-//(SELECT p.SESSION_ID,p.VIEW_PERCETAGE FROM PARTICIPANTS p where p.PARTIC_UNIQUENAME='STUDENT000029' 
+//            select  c.*,max(result.VIEW_PERCETAGE) from CLASS_SCHEDULER c INNER JOIN
+//(SELECT p.SESSION_ID,p.VIEW_PERCETAGE FROM PARTICIPANTS p where p.PARTIC_UNIQUENAME='STUDENT000029'
 //and p.VIEW_PERCETAGE<90
 //UNION
 //SELECT rs.SESSION_ID,rs.VIEW_PERCETAGE FROM RECORDED_STATS rs where rs.UNIQUENAME=
-//'STUDENT000029' and rs.VIEW_PERCETAGE<90) 
-// as result group by result.SESSION_ID  
+//'STUDENT000029' and rs.VIEW_PERCETAGE<90)
+// as result group by result.SESSION_ID
 //ORDER BY `result`.`SESSION_ID` ASC
             if (!"all".equals(filter.getSyllabus())) {
                 inCompleteNativeSql = inCompleteNativeSql + " and  c.SYLLABUS_ID= '" + filter.getSyllabus() + "'";
@@ -1888,7 +1928,6 @@ public class LiveClassController {
     /**
      * Completed classe new url
      *
-     * @param mapBean
      * @return
      */
     @RequestMapping(value = {"/completedClasses"}, method = RequestMethod.POST)
@@ -1955,7 +1994,7 @@ public class LiveClassController {
 //          String sql=  "SELECT p.SESSION_ID FROM PARTICIPANTS p where p.PARTIC_UNIQUENAME='" + sAccountId + "' and p.VIEW_PERCETAGE<90\n"
 //                    + "UNION\n"
 //                    + "SELECT rs.SESSION_ID FROM RECORDED_STATS rs where rs.UNIQUENAME='" + sAccountId + "' and rs.VIEW_PERCETAGE<90";
-//            
+//
 //              List<Object> incompletedClassesList = this.service.getObjectsByNativeSqlQuery(inCompleteNativeSql);
 //            String inCompleteNativeSql = "select CLASS_ID,ACCESS_TO,AVG_RATING,BATCH_ID,CAN_EXTEND, "
 //                    + "CHAPTER_ID,CHAPTER_NAME,DURATION_MINUTES,END_DATE,FORCE_EXIT_PARTICIPANTS, "
@@ -1979,13 +2018,13 @@ public class LiveClassController {
                     + "SELECT rs.SESSION_ID,rs.VIEW_PERCETAGE FROM RECORDED_STATS rs where rs.UNIQUENAME='" + sAccountId + "' and rs.VIEW_PERCETAGE>90)"
                     + "as result on c.SESSION_ID=result.SESSION_ID";
 
-//            select  c.*,max(result.VIEW_PERCETAGE) from CLASS_SCHEDULER c INNER JOIN 
-//(SELECT p.SESSION_ID,p.VIEW_PERCETAGE FROM PARTICIPANTS p where p.PARTIC_UNIQUENAME='STUDENT000029' 
+//            select  c.*,max(result.VIEW_PERCETAGE) from CLASS_SCHEDULER c INNER JOIN
+//(SELECT p.SESSION_ID,p.VIEW_PERCETAGE FROM PARTICIPANTS p where p.PARTIC_UNIQUENAME='STUDENT000029'
 //and p.VIEW_PERCETAGE<90
 //UNION
 //SELECT rs.SESSION_ID,rs.VIEW_PERCETAGE FROM RECORDED_STATS rs where rs.UNIQUENAME=
-//'STUDENT000029' and rs.VIEW_PERCETAGE<90) 
-// as result group by result.SESSION_ID  
+//'STUDENT000029' and rs.VIEW_PERCETAGE<90)
+// as result group by result.SESSION_ID
 //ORDER BY `result`.`SESSION_ID` ASC
             if (!"all".equals(filter.getSyllabus())) {
                 completeNativeSql = completeNativeSql + " and  c.SYLLABUS_ID= '" + filter.getSyllabus() + "'";
@@ -2298,12 +2337,12 @@ public class LiveClassController {
 //
 ////                SimpleDateFormat format = new SimpleDateFormat(
 ////                        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
-////                format.setTimeZone(TimeZone.getTimeZone("UTC"));
+////                format.setTimeZone(TimeZone.getTimeZone("IST"));
 ////                Date date = format.parse(startTime_0);
 ////                System.out.println("date time " + date.getTime());
 ////                SimpleDateFormat format2 = new SimpleDateFormat(
 ////                        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US);
-////                format.setTimeZone(TimeZone.getTimeZone("UTC"));
+////                format.setTimeZone(TimeZone.getTimeZone("IST"));
 ////                Date date2 = format2.parse(startTime_0);
 ////                System.out.println("date time " + date2.getTime());
 ////                long differebce = date2.getTime() - date.getTime();
@@ -2600,7 +2639,7 @@ public class LiveClassController {
                 json.put("msg", "View duration is below 90%.");
             }
 //            if(!json.containsKey("msg")){
-//               
+//
 //            }
             jSONArray.add(json);
         }
@@ -2708,9 +2747,9 @@ public class LiveClassController {
             batch.setGradeId(bean.getGradeId());
             batch.setDescription(bean.getDescription());
 
-            TimeZone tz = TimeZone.getTimeZone("UTC");
+            // TimeZone tz = TimeZone.getTimeZone("IST");
             DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // Quoted "Z" to indicate UTC, no timezone offset
-            df.setTimeZone(tz);
+            // df.setTimeZone(tz);
             String nowAsISO = df.format(new Date());
             Date current = MyDateFormate.stringToDate(nowAsISO);
             batch.setDateOfCreation(current);
@@ -2974,9 +3013,9 @@ public class LiveClassController {
 
         int countRecorded = 0;
 
-        TimeZone tz = TimeZone.getTimeZone("UTC");
+        // TimeZone tz = TimeZone.getTimeZone("IST");
         DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // Quoted "Z" to indicate UTC, no timezone offset
-        df.setTimeZone(tz);
+        //  df.setTimeZone(tz);
         Date current = MyDateFormate.stringToDate(String.format("%s", df.format(new Date())));
         String currentDate = df.format(new Date());
         try {
@@ -3083,9 +3122,9 @@ public class LiveClassController {
     ResponseEntity<?> createDemoMetadata(@RequestBody final Map<String, String> mapBean) {
         JSONObject json = new JSONObject();
 
-        TimeZone tz = TimeZone.getTimeZone("UTC");
+        // TimeZone tz = TimeZone.getTimeZone("IST");
         DateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"); // Quoted "Z" to indicate UTC, no timezone offset
-        df.setTimeZone(tz);
+        // df.setTimeZone(tz);
         Date dateOfCreation = MyDateFormate.stringToDate(String.format("%s", df.format(new Date())));
 
         String accountId = mapBean.get("accountId");
@@ -3149,6 +3188,99 @@ public class LiveClassController {
         }
 
         return new ResponseEntity<>(list, HttpStatus.OK);
+    }
+
+    @RequestMapping(value = {"/createZoomMeeting"}, method = RequestMethod.POST)
+    public @ResponseBody
+    ResponseEntity<?> createZoomMeeting(@RequestBody ZoomRequest zoomMeetingRequest) {
+
+        ResponseEntity<JSONObject> responseEntity = null;
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        //  headers.set("Authorization", zoomToken);
+        headers.set("Authorization", zoomToken);
+        String URL = creatingMeetingURL;
+
+        log.info("Schedule date time {}", zoomMeetingRequest.getStart_time());
+
+        ZoomRequest zoomRequest = new ZoomRequest();
+        zoomRequest.setAgenda(zoomMeetingRequest.getAgenda());
+        zoomRequest.setAudio(zoomMeetingRequest.getAudio());
+        zoomRequest.setDefault_password(zoomMeetingRequest.isDefault_password());
+        zoomRequest.setDuration(zoomMeetingRequest.getDuration());
+        zoomRequest.setPre_schedule(zoomMeetingRequest.isPre_schedule());
+        zoomRequest.setSettings(zoomMeetingRequest.getSettings());
+        zoomRequest.setStart_time(zoomMeetingRequest.getStart_time());
+        zoomRequest.setTopic(zoomMeetingRequest.getTopic());
+        zoomRequest.setJoin_before_host(zoomMeetingRequest.isJoin_before_host());
+        zoomRequest.setAuto_recording(zoomMeetingRequest.getAuto_recording());
+        zoomRequest.setEmail_notification(true);
+        zoomRequest.setIn_meeting(false);
+        zoomRequest.setJoin_before_host(false);
+
+
+        HttpEntity<ZoomRequest> request = new HttpEntity<>(zoomRequest, headers);
+        log.info("Calling Zoom API to create Meeting with data {}", zoomRequest);
+        try {
+            responseEntity = restTemplate.postForEntity(URL, request, JSONObject.class);
+        } catch (HttpClientErrorException e) {
+            log.error("Zoom Token Expired!");
+            return new ResponseEntity<>("Zoom Token Expired", HttpStatus.UNAUTHORIZED);
+        }
+        log.info("Getting Response from Zoom meeting ", responseEntity);
+        return responseEntity;
+
+
+    }
+
+    @GetMapping("/isValidToken")
+    public boolean  getTokenValid(){
+
+        boolean flag = false;
+        ResponseEntity<JSONObject> responseEntity = null;
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        //  headers.set("Authorization", zoomToken);
+        headers.set("Authorization", zoomToken);
+        String URL = creatingMeetingURL;
+        ZoomRequest zoomRequest = new ZoomRequest();
+        zoomRequest.setTopic("Testing Token");
+        HttpEntity<ZoomRequest> request = new HttpEntity<>(zoomRequest, headers);
+
+        try {
+            responseEntity = restTemplate.postForEntity(URL, request, JSONObject.class);
+            flag = true;
+        } catch (HttpClientErrorException e) {
+            log.error("Zoom Token Expired!");
+            flag =false;
+        }
+
+        return flag;
+    }
+
+    @PostMapping("/generateToken")
+    public @ResponseBody
+    ResponseEntity<?> generateZoomRequest(@RequestBody TokenRequest tokenRequest) {
+
+        ResponseEntity<JSONObject> responseEntity = null;
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Arrays.asList(MediaType.APPLICATION_JSON));
+
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        HttpEntity<TokenRequest> request = new HttpEntity<>(tokenRequest, headers);
+        try {
+            responseEntity = restTemplate.postForEntity("http://localhost:3000/userinfo", request, JSONObject.class);
+        }catch (HttpClientErrorException e) {
+                log.error("Zoom Token Expired!");
+                return new ResponseEntity<>("Zoom Token Expired", HttpStatus.UNAUTHORIZED);
+            }
+            log.info("Getting From Zoom", responseEntity);
+            return responseEntity;
+
     }
 
 }
